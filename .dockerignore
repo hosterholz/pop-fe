@@ -1,0 +1,21 @@
+# Host-specific environment and build artifacts. The image builds its own.
+.git
+.venv
+__pycache__
+**/__pycache__
+pop-fe-work
+pop-fe-psp-work
+pop-fe-ps3-work
+lcp
+atracdenc/src/CMakeCache.txt
+atracdenc/src/CMakeFiles
+atracdenc/src/Makefile
+atracdenc/src/atracdenc
+atracdenc/src/cmake_install.cmake
+atracdenc/src/*.a
+psx-undither/build
+PSL1GHT/tools/ps3py/build
+PSL1GHT/tools/ps3py/pkgcrypt*
+*.pkg
+EBOOT.PBP
+DOCUMENT.DAT

@@ -12,3 +12,4 @@ DOCUMENT.DAT
 *.exe
 *.pkg
 tmp*
+lcp

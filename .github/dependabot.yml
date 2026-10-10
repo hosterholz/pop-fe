@@ -1,0 +1,27 @@
+# Keeps the dependencies introduced for the Docker image up to date.
+# Git submodules are deliberately left out: upstream pins the versions
+# pop-fe is tested with, and syncing with upstream brings those along.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]

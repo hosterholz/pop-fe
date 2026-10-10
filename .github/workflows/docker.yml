@@ -1,0 +1,178 @@
+name: Docker image
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly rebuild to pick up security updates of the base images.
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: Build and test ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: pop-fe:test
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Check bundled tools
+        run: |
+          docker run --rm --entrypoint sh pop-fe:test -euc '
+            for f in atracdenc/src/atracdenc lcp psx-undither/build/psxund; do
+              test -x "$f" || { echo "missing $f"; exit 1; }
+            done
+            ls PSL1GHT/tools/ps3py/pkgcrypt*.so
+            for c in ffmpeg xdelta3 unar chdman; do command -v "$c"; done
+          '
+
+      - name: Test conversions
+        # The same conversions as the upstream CI in py.yml, run through
+        # pop-fe-docker.sh against the freshly built image.
+        env:
+          POPFE_IMAGE: pop-fe:test
+        run: |
+          t=$PWD/testimages/vs
+          out=$RUNNER_TEMP/out
+          mkdir -p "$out/PSP/GAME"
+          assets=(--snd0="$t/sine.wav" --cover="$t/blank.png" --pic0="$t/blank.png"
+                  --pic1="$t/blank.png" --force-no-assets --no-libcrypt)
+          run() { ./pop-fe-docker.sh -i testimages -o "$out" -- "$@"; }
+
+          run --ps3-pkg="$out/vs.pkg" "${assets[@]}" "$t/vs.cue"
+          run --ps3-pkg="$out/vs-upper.pkg" "${assets[@]}" "$t/vs.CUE"
+          run --ps3-pkg="$out/vs-multi.pkg" "${assets[@]}" "$t/vs.cue" "$t/vs.cue"
+          run --psp-dir="$out" "${assets[@]}" "$t/vs.cue" "$t/vs.cue"
+          run --psp-dir="$out" --game_id=SLPS01623 "${assets[@]}" "$t/vs.cue" "$t/vs.cue"
+
+          for f in vs.pkg vs-upper.pkg vs-multi.pkg \
+                   PSP/GAME/SLES02754/EBOOT.PBP PSP/GAME/SLPS01623/EBOOT.PBP; do
+            test -s "$out/$f" || { echo "missing $f"; exit 1; }
+          done
+          ls -lR "$out"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        if: github.event_name != 'pull_request'
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish multi-arch image
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"

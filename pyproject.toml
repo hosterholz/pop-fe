@@ -1,0 +1,29 @@
+[project]
+name = "pop-fe"
+version = "0.0.0"
+description = "Convert PSX disc images and install them on PSP/Vita, PS3, PS2, PSIO, Retroarch and PS Classic"
+readme = "README"
+license = "LGPL-2.1-only"
+requires-python = ">=3.10"
+dependencies = [
+    "ecdsa",
+    "opencv-contrib-python",
+    "pillow",
+    "pycdlib",
+    "pycryptodome",
+    "pygubu",
+    "pypdf2",
+    "rarfile",
+    "requests",
+    "scikit-learn",
+    "scipy",
+    "tkinterdnd2",
+    "yt-dlp",
+    # PSL1GHT/tools/ps3py/setup.py builds pkgcrypt with distutils, which
+    # only exists on Python >= 3.12 through setuptools.
+    "setuptools",
+]
+
+[tool.uv]
+# pop-fe is a collection of scripts run from the checkout, not a package.
+package = false
