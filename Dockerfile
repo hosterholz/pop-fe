@@ -10,7 +10,7 @@
 
 FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
 
-FROM python:3.12-slim-bookworm AS build
+FROM python:3.14-slim-bookworm AS build
 
 ARG LCP_VERSION=v1.0.9
 
@@ -54,7 +54,7 @@ RUN rm -rf atracdenc/src/CMakeFiles atracdenc/src/*.a atracdenc/test \
   mkdir -p pop-fe-work && chmod -R a+rwX /pop-fe
 
 
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # ffmpeg: audio conversion, mame-tools: chdman for CHD images,
 # xdelta3: romhacks, unar: CBR manuals, wget: some asset downloads
